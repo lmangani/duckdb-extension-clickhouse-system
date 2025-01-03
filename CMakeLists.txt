@@ -8,6 +8,10 @@ set(TARGET_NAME chsql_system)
 # Note that it should also be removed from vcpkg.json to prevent needlessly installing it..
 find_package(OpenSSL REQUIRED)
 
+if(MINGW)
+    set(OPENSSL_USE_STATIC_LIBS TRUE)
+endif()
+
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
