@@ -22,9 +22,13 @@ struct SystemTablesData : public TableFunctionData {
     vector<Value> databases;
     vector<Value> schemas;
     vector<Value> names;
+    vector<Value> uuids;
+    vector<Value> engines;
+    vector<Value> is_temporary;
     vector<Value> column_names;
     vector<Value> column_types;
-    vector<Value> temporary;
+    vector<Value> create_table_query;
+    vector<Value> comments;
     idx_t offset = 0;
 };
 
@@ -60,10 +64,13 @@ static void SystemTablesFunction(ClientContext &context, TableFunctionInput &dat
         output.SetValue(0, count, data.databases[data.offset]);    // database
         output.SetValue(1, count, data.schemas[data.offset]);      // schema
         output.SetValue(2, count, data.names[data.offset]);        // name
-        output.SetValue(3, count, data.column_names[data.offset]); // column_names
-        output.SetValue(4, count, data.column_types[data.offset]); // column_types
-        output.SetValue(5, count, data.temporary[data.offset]);    // temporary
-        output.SetValue(6, count, Value(data.temporary[data.offset].GetValue<bool>() ? "TEMPORARY" : "BASE TABLE")); // engine
+        output.SetValue(3, count, data.uuids[data.offset]);        // uuid
+        output.SetValue(4, count, data.engines[data.offset]);      // engine
+        output.SetValue(5, count, data.is_temporary[data.offset]); // is_temporary
+        output.SetValue(6, count, data.column_names[data.offset]); // column_names
+        output.SetValue(7, count, data.column_types[data.offset]); // column_types
+        output.SetValue(8, count, data.create_table_query[data.offset]); // create_table_query
+        output.SetValue(9, count, data.comments[data.offset]);     // comment
         
         count++;
         data.offset++;
@@ -103,17 +110,23 @@ static unique_ptr<FunctionData> SystemTablesBind(ClientContext &context, TableFu
     names.emplace_back("database");
     names.emplace_back("schema");
     names.emplace_back("name");
+    names.emplace_back("uuid");
+    names.emplace_back("engine");
+    names.emplace_back("is_temporary");
     names.emplace_back("column_names");
     names.emplace_back("column_types");
-    names.emplace_back("temporary");
-    names.emplace_back("engine");
+    names.emplace_back("create_table_query");
+    names.emplace_back("comment");
 
     return_types.emplace_back(LogicalType::VARCHAR);
     return_types.emplace_back(LogicalType::VARCHAR);
     return_types.emplace_back(LogicalType::VARCHAR);
-    return_types.emplace_back(LogicalType::LIST(LogicalType::VARCHAR));
-    return_types.emplace_back(LogicalType::LIST(LogicalType::VARCHAR));
+    return_types.emplace_back(LogicalType::UUID);
+    return_types.emplace_back(LogicalType::VARCHAR);
     return_types.emplace_back(LogicalType::BOOLEAN);
+    return_types.emplace_back(LogicalType::LIST(LogicalType::VARCHAR));
+    return_types.emplace_back(LogicalType::LIST(LogicalType::VARCHAR));
+    return_types.emplace_back(LogicalType::VARCHAR);
     return_types.emplace_back(LogicalType::VARCHAR);
 
     auto result = make_uniq<SystemTablesData>();
@@ -127,9 +140,13 @@ static unique_ptr<FunctionData> SystemTablesBind(ClientContext &context, TableFu
             result->databases.push_back(row.GetValue<std::string>(0));     // database
             result->schemas.push_back(row.GetValue<std::string>(1));       // schema
             result->names.push_back(row.GetValue<std::string>(2));         // name
+            result->uuids.push_back(Value::UUID(row.GetValue<std::string>(2))); // uuid (placeholder using table name hash)
+            result->engines.push_back(Value(row.GetValue<bool>(5) ? "TEMPORARY" : "BASE TABLE")); // engine
+            result->is_temporary.push_back(row.GetValue<bool>(5));         // is_temporary
             result->column_names.push_back(row.GetValue<Value>(3));        // column_names
             result->column_types.push_back(row.GetValue<Value>(4));        // column_types
-            result->temporary.push_back(row.GetValue<bool>(5));            // temporary
+            result->create_table_query.push_back(Value(""));               // create_table_query (placeholder)
+            result->comments.push_back(Value(""));                         // comment (placeholder)
         }
     }
 
