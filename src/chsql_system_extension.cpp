@@ -19,7 +19,12 @@ struct SystemDatabasesData : public TableFunctionData {
 };
 
 struct SystemTablesData : public TableFunctionData {
-    vector<reference<CatalogEntry>> entries;
+    vector<Value> databases;
+    vector<Value> schemas;
+    vector<Value> names;
+    vector<Value> column_names;
+    vector<Value> column_types;
+    vector<Value> temporary;
     idx_t offset = 0;
 };
 
@@ -46,38 +51,21 @@ static void SystemDatabasesFunction(ClientContext &context, TableFunctionInput &
 
 static void SystemTablesFunction(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
     auto &data = (SystemTablesData &)*data_p.bind_data;
-    if (data.offset >= data.entries.size()) {
+    if (data.offset >= data.databases.size()) {
         return;
     }
 
     idx_t count = 0;
-    while (data.offset < data.entries.size() && count < STANDARD_VECTOR_SIZE) {
-        auto &entry = data.entries[data.offset].get();
-        if (entry.type == CatalogType::TABLE_ENTRY) {
-            auto &table_entry = entry.Cast<TableCatalogEntry>();
-            idx_t col = 0;
-            
-            // Core table information
-            output.SetValue(col++, count, Value(table_entry.schema.name)); // database
-            output.SetValue(col++, count, Value(table_entry.schema.name)); // schema
-            output.SetValue(col++, count, Value(table_entry.name));        // name
-            
-            // Get column information
-            vector<Value> column_names;
-            vector<Value> column_types;
-            for (auto &column : table_entry.GetColumns().Physical()) {
-                column_names.push_back(Value(column.Name()));
-                column_types.push_back(Value(column.Type().ToString()));
-            }
-            output.SetValue(col++, count, Value::LIST(LogicalType::VARCHAR, column_names));
-            output.SetValue(col++, count, Value::LIST(LogicalType::VARCHAR, column_types));
-            
-            // Additional metadata
-            output.SetValue(col++, count, Value::BOOLEAN(table_entry.temporary)); // temporary
-            output.SetValue(col++, count, Value(table_entry.temporary ? "TEMPORARY" : "BASE TABLE")); // engine
-            
-            count++;
-        }
+    while (data.offset < data.databases.size() && count < STANDARD_VECTOR_SIZE) {
+        output.SetValue(0, count, data.databases[data.offset]);    // database
+        output.SetValue(1, count, data.schemas[data.offset]);      // schema
+        output.SetValue(2, count, data.names[data.offset]);        // name
+        output.SetValue(3, count, data.column_names[data.offset]); // column_names
+        output.SetValue(4, count, data.column_types[data.offset]); // column_types
+        output.SetValue(5, count, data.temporary[data.offset]);    // temporary
+        output.SetValue(6, count, Value(data.temporary[data.offset].GetValue<bool>() ? "TEMPORARY" : "BASE TABLE")); // engine
+        
+        count++;
         data.offset++;
     }
 
@@ -130,20 +118,18 @@ static unique_ptr<FunctionData> SystemTablesBind(ClientContext &context, TableFu
 
     auto result = make_uniq<SystemTablesData>();
     
-    // Get all schemas from system catalog
-    auto &catalog = Catalog::GetCatalog(context, SYSTEM_CATALOG);
-    auto schemas = catalog.GetSchemas(context);
-    for (auto &schema : schemas) {
-        auto &schema_ref = schema.get();
-        vector<reference<CatalogEntry>> entries;
-        
-        // Use lambda to collect table entries
-        schema_ref.Scan(CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
-            entries.push_back(entry);
-        });
-        
-        for (auto &entry : entries) {
-            result->entries.push_back(entry);
+    // Get tables using SHOW ALL TABLES
+    Connection con(Catalog::GetSystemCatalog(context).GetDatabase());
+    auto table_result = con.Query("SHOW ALL TABLES");
+    
+    if (!table_result->HasError()) {
+        for (auto &row : *table_result) {
+            result->databases.push_back(row.GetValue<std::string>(0));     // database
+            result->schemas.push_back(row.GetValue<std::string>(1));       // schema
+            result->names.push_back(row.GetValue<std::string>(2));         // name
+            result->column_names.push_back(row.GetValue<Value>(3));        // column_names
+            result->column_types.push_back(row.GetValue<Value>(4));        // column_types
+            result->temporary.push_back(row.GetValue<bool>(5));            // temporary
         }
     }
 
