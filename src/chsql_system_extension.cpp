@@ -4,12 +4,19 @@
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/function/table_function.hpp"
+#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/main/extension_util.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/main/connection.hpp"
+
+#include <fstream>
+#include <sstream>
+#include <unistd.h>
+#include <sys/sysinfo.h>
+#include <iterator>
 
 namespace duckdb {
 
@@ -322,6 +329,31 @@ static unique_ptr<FunctionData> SystemColumnsBind(ClientContext &context, TableF
     return std::move(result);
 }
 
+// Function to get the process uptime in seconds
+int64_t GetProcessUptime() {
+    struct sysinfo s_info;
+    sysinfo(&s_info);
+    int64_t uptime = s_info.uptime;
+
+    std::ifstream stat_file("/proc/self/stat");
+    std::string stat_line;
+    std::getline(stat_file, stat_line);
+    std::istringstream iss(stat_line);
+    std::vector<std::string> stats((std::istream_iterator<std::string>(iss)), std::istream_iterator<std::string>());
+
+    int64_t start_time = std::stoll(stats[21]) / sysconf(_SC_CLK_TCK);
+    return uptime - start_time;
+}
+
+// Scalar function to return the process uptime
+static void SystemUptimeFunction(DataChunk &input, ExpressionState &state, Vector &result) {
+    auto uptime = GetProcessUptime();
+    auto result_data = FlatVector::GetData<int64_t>(result);
+    result_data[0] = uptime;
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    FlatVector::SetNull(result, 0, false);
+}
+
 void ChsqlSystemExtension::Load(DuckDB &db) {
     Connection con(db);
     con.BeginTransaction();
@@ -342,6 +374,10 @@ void ChsqlSystemExtension::Load(DuckDB &db) {
     auto functions_func = TableFunction("system_functions", {}, SystemFunctionsFunction, SystemFunctionsBind);
     ExtensionUtil::RegisterFunction(*db.instance, functions_func);
 
+    // Register system.uptime scalar function
+    auto uptime_func = ScalarFunction("uptime", {}, LogicalType::BIGINT, SystemUptimeFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, uptime_func);
+
     // Create system schema if it doesn't exist
     con.Query("CREATE SCHEMA IF NOT EXISTS system;");
     
@@ -350,6 +386,7 @@ void ChsqlSystemExtension::Load(DuckDB &db) {
     con.Query("CREATE OR REPLACE VIEW system.tables AS SELECT * FROM system_tables();");
     con.Query("CREATE OR REPLACE VIEW system.columns AS SELECT * FROM system_columns();");
     con.Query("CREATE OR REPLACE VIEW system.functions AS SELECT * FROM system_functions();");
+    con.Query("CREATE OR REPLACE VIEW system.uptime AS SELECT uptime();");
 
     con.Commit();
 }

@@ -6,11 +6,16 @@
 
 > This project emulates ClickHouse system tables within DuckDB
 
-The extension provides system table functions:
-- [x] `system_databases`
-- [x] `system_tables`
-- [x] `system_columns`
-- [x] `system_functions`.
+The extension provides system functions:
+### Table Views
+- [x] `system.databases`
+- [x] `system.tables`
+- [x] `system.columns`
+- [x] `system.functions`
+- [x] `system.uptime`
+### Scalar
+- [x] `uptime()`
+
 
 ## Installation
 
