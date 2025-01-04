@@ -107,7 +107,7 @@ D SELECT * FROM system.functions;
 │ 692 rows (40 shown)                                                                                                                                                                                                4 columns │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-D -- List all attached databases as disks
+D -- List all attached databases and blocks as disks
 D SELECT * FROM system.disks;
 ┌──────────┬──────────────┬────────────┬─────────────┬──────────────────┬─────────────────┬─────────┬─────────────────────┬───────────────┬──────────────┬──────────────┬───────────────┬───────────┬───────────┬────────────┐
 │   name   │     path     │ free_space │ total_space │ unreserved_space │ keep_free_space │  type   │ object_storage_type │ metadata_type │ is_encrypted │ is_read_only │ is_write_once │ is_remote │ is_broken │ cache_path │
