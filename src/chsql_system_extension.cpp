@@ -12,6 +12,10 @@
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/main/connection.hpp"
 
+#include "duckdb/main/query_result.hpp"
+#include "duckdb/main/materialized_query_result.hpp"
+#include "duckdb/common/helper.hpp"
+
 #include <fstream>
 #include <sstream>
 #if defined(__linux__)
@@ -408,6 +412,139 @@ static void SystemUptimeFunction(DataChunk &input, ExpressionState &state, Vecto
     FlatVector::SetNull(result, 0, false);
 }
 
+// system.disks
+struct SystemDisksData : public TableFunctionData {
+    vector<Value> names;
+    vector<Value> paths;
+    vector<Value> free_spaces;
+    vector<Value> total_spaces;
+    vector<Value> unreserved_spaces;
+    vector<Value> keep_free_spaces;
+    vector<Value> types;
+    vector<Value> object_storage_types;
+    vector<Value> metadata_types;
+    vector<Value> is_encrypteds;
+    vector<Value> is_read_onlys;
+    vector<Value> is_write_onces;
+    vector<Value> is_remotes;
+    vector<Value> is_brokens;
+    vector<Value> cache_paths;
+    idx_t offset = 0;
+};
+
+static void SystemDisksFunction(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
+    auto &data = (SystemDisksData &)*data_p.bind_data;
+    if (data.offset >= data.names.size()) {
+        return;
+    }
+
+    idx_t count = 0;
+    while (data.offset < data.names.size() && count < STANDARD_VECTOR_SIZE) {
+        output.SetValue(0, count, data.names[data.offset]);                  // name
+        output.SetValue(1, count, data.paths[data.offset]);                  // path
+        output.SetValue(2, count, data.free_spaces[data.offset]);            // free_space
+        output.SetValue(3, count, data.total_spaces[data.offset]);           // total_space
+        output.SetValue(4, count, data.unreserved_spaces[data.offset]);      // unreserved_space
+        output.SetValue(5, count, data.keep_free_spaces[data.offset]);       // keep_free_space
+        output.SetValue(6, count, data.types[data.offset]);                  // type
+        output.SetValue(7, count, data.object_storage_types[data.offset]);   // object_storage_type
+        output.SetValue(8, count, data.metadata_types[data.offset]);         // metadata_type
+        output.SetValue(9, count, data.is_encrypteds[data.offset]);          // is_encrypted
+        output.SetValue(10, count, data.is_read_onlys[data.offset]);         // is_read_only
+        output.SetValue(11, count, data.is_write_onces[data.offset]);        // is_write_once
+        output.SetValue(12, count, data.is_remotes[data.offset]);            // is_remote
+        output.SetValue(13, count, data.is_brokens[data.offset]);            // is_broken
+        output.SetValue(14, count, data.cache_paths[data.offset]);           // cache_path
+        
+        count++;
+        data.offset++;
+    }
+
+    output.SetCardinality(count);
+}
+
+static unique_ptr<FunctionData> SystemDisksBind(ClientContext &context, TableFunctionBindInput &input, vector<LogicalType> &return_types, vector<string> &names) {
+    return_types.emplace_back(LogicalType::VARCHAR); // name
+    names.emplace_back("name");
+
+    return_types.emplace_back(LogicalType::VARCHAR); // path
+    names.emplace_back("path");
+
+    return_types.emplace_back(LogicalType::BIGINT); // free_space
+    names.emplace_back("free_space");
+
+    return_types.emplace_back(LogicalType::BIGINT); // total_space
+    names.emplace_back("total_space");
+
+    return_types.emplace_back(LogicalType::BIGINT); // unreserved_space
+    names.emplace_back("unreserved_space");
+
+    return_types.emplace_back(LogicalType::BIGINT); // keep_free_space
+    names.emplace_back("keep_free_space");
+
+    return_types.emplace_back(LogicalType::VARCHAR); // type
+    names.emplace_back("type");
+
+    return_types.emplace_back(LogicalType::VARCHAR); // object_storage_type
+    names.emplace_back("object_storage_type");
+
+    return_types.emplace_back(LogicalType::VARCHAR); // metadata_type
+    names.emplace_back("metadata_type");
+
+    return_types.emplace_back(LogicalType::BOOLEAN); // is_encrypted
+    names.emplace_back("is_encrypted");
+
+    return_types.emplace_back(LogicalType::BOOLEAN); // is_read_only
+    names.emplace_back("is_read_only");
+
+    return_types.emplace_back(LogicalType::BOOLEAN); // is_write_once
+    names.emplace_back("is_write_once");
+
+    return_types.emplace_back(LogicalType::BOOLEAN); // is_remote
+    names.emplace_back("is_remote");
+
+    return_types.emplace_back(LogicalType::BOOLEAN); // is_broken
+    names.emplace_back("is_broken");
+
+    return_types.emplace_back(LogicalType::VARCHAR); // cache_path
+    names.emplace_back("cache_path");
+
+    auto result = make_uniq<SystemDisksData>();
+    
+    // Assuming we are using the DuckDB database path
+    auto &db_instance = DatabaseInstance::GetDatabase(context);
+    DuckDB db(db_instance);
+    Connection con(db);
+    auto result_query = con.Query("PRAGMA database_size;");
+
+    if (!result_query->HasError()) {
+        auto collection = result_query->Fetch();
+        for (idx_t row_idx = 0; row_idx < collection->size(); row_idx++) {
+            result->names.push_back(collection->GetValue(0, row_idx).ToString()); // database_name
+            result->paths.push_back(Value("/path/to/database")); // Assuming a fixed path, you can modify this as needed
+            result->free_spaces.push_back(Value::BIGINT(collection->GetValue(5, row_idx).GetValue<int64_t>() * collection->GetValue(2, row_idx).GetValue<int64_t>())); // free_blocks * block_size
+            result->total_spaces.push_back(Value::BIGINT(collection->GetValue(3, row_idx).GetValue<int64_t>() * collection->GetValue(2, row_idx).GetValue<int64_t>())); // total_blocks * block_size
+            result->unreserved_spaces.push_back(Value::BIGINT(collection->GetValue(5, row_idx).GetValue<int64_t>() * collection->GetValue(2, row_idx).GetValue<int64_t>())); // free_blocks * block_size
+            result->keep_free_spaces.push_back(Value::BIGINT(0)); // No equivalent in DuckDB, setting to 0
+            result->types.push_back(Value("Local")); // Assuming Local type
+            result->object_storage_types.push_back(Value("None")); // No equivalent in DuckDB, setting to None
+            result->metadata_types.push_back(Value("None")); // No equivalent in DuckDB, setting to None
+            result->is_encrypteds.push_back(Value::BOOLEAN(false)); // Assuming no encryption
+            result->is_read_onlys.push_back(Value::BOOLEAN(false)); // Assuming not read-only
+            result->is_write_onces.push_back(Value::BOOLEAN(false)); // Assuming not write-once
+            result->is_remotes.push_back(Value::BOOLEAN(false)); // Assuming not remote
+            result->is_brokens.push_back(Value::BOOLEAN(false)); // Assuming not broken
+            result->cache_paths.push_back(Value("")); // No equivalent in DuckDB, setting to empty
+        }
+    } else {
+        throw Exception(ExceptionType::EXECUTOR, "Failed to query database size");
+    }
+
+    return std::move(result);
+}
+// Global Register
+
+
 void ChsqlSystemExtension::Load(DuckDB &db) {
     Connection con(db);
     con.BeginTransaction();
@@ -432,15 +569,20 @@ void ChsqlSystemExtension::Load(DuckDB &db) {
     auto uptime_func = ScalarFunction("uptime", {}, LogicalType::BIGINT, SystemUptimeFunction);
     ExtensionUtil::RegisterFunction(*db.instance, uptime_func);
 
+    // Register system.disks table function
+    auto disks_func = TableFunction("system_disks", {}, SystemDisksFunction, SystemDisksBind);
+    ExtensionUtil::RegisterFunction(*db.instance, disks_func);
+
     // Create system schema if it doesn't exist
     con.Query("CREATE SCHEMA IF NOT EXISTS system;");
-    
+
     // Create views in system schema
     con.Query("CREATE OR REPLACE VIEW system.databases AS SELECT * FROM system_databases();");
     con.Query("CREATE OR REPLACE VIEW system.tables AS SELECT * FROM system_tables();");
     con.Query("CREATE OR REPLACE VIEW system.columns AS SELECT * FROM system_columns();");
     con.Query("CREATE OR REPLACE VIEW system.functions AS SELECT * FROM system_functions();");
     con.Query("CREATE OR REPLACE VIEW system.uptime AS SELECT uptime();");
+    con.Query("CREATE OR REPLACE VIEW system.disks AS SELECT * FROM system_disks();");
 
     con.Commit();
 }
