@@ -15,8 +15,14 @@
 #include <fstream>
 #include <sstream>
 #include <unistd.h>
+#if defined(__linux__)
 #include <sys/sysinfo.h>
 #include <iterator>
+#elif defined(_WIN32)
+// windows includes
+#elif defined(__EMSCRIPTEN__)
+// wasm includes
+#endif
 
 namespace duckdb {
 
