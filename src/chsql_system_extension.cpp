@@ -14,13 +14,14 @@
 
 #include <fstream>
 #include <sstream>
-#include <unistd.h>
 #if defined(__linux__)
+#include <unistd.h>
 #include <sys/sysinfo.h>
 #include <iterator>
 #elif defined(_WIN32)
 #include <windows.h>
 #elif defined(__APPLE__)
+#include <unistd.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
 #include <time.h>
