@@ -329,7 +329,8 @@ static unique_ptr<FunctionData> SystemColumnsBind(ClientContext &context, TableF
     return std::move(result);
 }
 
-// Function to get the process uptime in seconds
+// Function to get the process uptime in seconds for Linux
+#if defined(__linux__)
 int64_t GetProcessUptime() {
     struct sysinfo s_info;
     sysinfo(&s_info);
@@ -344,6 +345,47 @@ int64_t GetProcessUptime() {
     int64_t start_time = std::stoll(stats[21]) / sysconf(_SC_CLK_TCK);
     return uptime - start_time;
 }
+
+// Function to get the process uptime in seconds for Windows
+#elif defined(_WIN32)
+int64_t GetProcessUptime() {
+    FILETIME ftCreate, ftExit, ftKernel, ftUser;
+    ULARGE_INTEGER li;
+    SYSTEMTIME st;
+    GetSystemTime(&st);
+    SystemTimeToFileTime(&st, &ftExit);
+    HANDLE hProcess = GetCurrentProcess();
+    GetProcessTimes(hProcess, &ftCreate, &ftExit, &ftKernel, &ftUser);
+    li.LowPart = ftCreate.dwLowDateTime;
+    li.HighPart = ftCreate.dwHighDateTime;
+    int64_t start_time = li.QuadPart / 10000000ULL - 11644473600ULL;
+    GetSystemTimeAsFileTime(&ftExit);
+    li.LowPart = ftExit.dwLowDateTime;
+    li.HighPart = ftExit.dwHighDateTime;
+    int64_t current_time = li.QuadPart / 10000000ULL - 11644473600ULL;
+    return current_time - start_time;
+}
+
+// Function to get the process uptime in seconds for macOS
+#elif defined(__APPLE__)
+int64_t GetProcessUptime() {
+    struct timeval boottime;
+    size_t len = sizeof(boottime);
+    sysctlbyname("kern.boottime", &boottime, &len, NULL, 0);
+    time_t bsec = boottime.tv_sec, csec = time(NULL);
+
+    return difftime(csec, bsec);
+}
+
+// Function to get the process uptime in seconds for WASM (stub implementation)
+#elif defined(__EMSCRIPTEN__)
+int64_t GetProcessUptime() {
+    // WASM does not support system calls to get process uptime
+    // This is a stub implementation
+    return 0;
+}
+
+#endif
 
 // Scalar function to return the process uptime
 static void SystemUptimeFunction(DataChunk &input, ExpressionState &state, Vector &result) {
