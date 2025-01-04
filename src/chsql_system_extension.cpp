@@ -14,21 +14,27 @@
 namespace duckdb {
 
 struct SystemDatabasesData : public TableFunctionData {
-    vector<string> databases;
+    vector<Value> names;
+    vector<Value> engines;
+    vector<Value> data_paths;
+    vector<Value> metadata_paths;
+    vector<Value> uuids;
+    vector<Value> engine_full;
+    vector<Value> comments;
     idx_t offset = 0;
 };
 
 struct SystemTablesData : public TableFunctionData {
     vector<Value> databases;
-    vector<Value> schemas;
     vector<Value> names;
     vector<Value> uuids;
     vector<Value> engines;
     vector<Value> is_temporary;
-    vector<Value> column_names;
-    vector<Value> column_types;
-    vector<Value> create_table_query;
-    vector<Value> comments;
+    vector<Value> data_paths;
+    vector<Value> metadata_paths;
+    vector<Value> metadata_modification_times;
+    vector<Value> metadata_versions;
+    vector<Value> create_table_queries;
     idx_t offset = 0;
 };
 
@@ -52,17 +58,19 @@ struct SystemFunctionsData : public TableFunctionData {
 
 static void SystemDatabasesFunction(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
     auto &data = (SystemDatabasesData &)*data_p.bind_data;
-    if (data.offset >= data.databases.size()) {
+    if (data.offset >= data.names.size()) {
         return;
     }
 
     idx_t count = 0;
-    while (data.offset < data.databases.size() && count < STANDARD_VECTOR_SIZE) {
-        auto &db_name = data.databases[data.offset];
-        
-        output.SetValue(0, count, Value(db_name));        // name
-        output.SetValue(1, count, Value("DuckDB"));       // engine
-        output.SetValue(2, count, Value(db_name == "memory" ? "memory" : "attached")); // type
+    while (data.offset < data.names.size() && count < STANDARD_VECTOR_SIZE) {
+        output.SetValue(0, count, data.names[data.offset]);           // name
+        output.SetValue(1, count, data.engines[data.offset]);         // engine
+        output.SetValue(2, count, data.data_paths[data.offset]);      // data_path
+        output.SetValue(3, count, data.metadata_paths[data.offset]);  // metadata_path
+        output.SetValue(4, count, data.uuids[data.offset]);           // uuid
+        output.SetValue(5, count, data.engine_full[data.offset]);     // engine_full
+        output.SetValue(6, count, data.comments[data.offset]);        // comment
         
         count++;
         data.offset++;
@@ -79,16 +87,16 @@ static void SystemTablesFunction(ClientContext &context, TableFunctionInput &dat
 
     idx_t count = 0;
     while (data.offset < data.databases.size() && count < STANDARD_VECTOR_SIZE) {
-        output.SetValue(0, count, data.databases[data.offset]);    // database
-        output.SetValue(1, count, data.schemas[data.offset]);      // schema
-        output.SetValue(2, count, data.names[data.offset]);        // name
-        output.SetValue(3, count, data.uuids[data.offset]);        // uuid
-        output.SetValue(4, count, data.engines[data.offset]);      // engine
-        output.SetValue(5, count, data.is_temporary[data.offset]); // is_temporary
-        output.SetValue(6, count, data.column_names[data.offset]); // column_names
-        output.SetValue(7, count, data.column_types[data.offset]); // column_types
-        output.SetValue(8, count, data.create_table_query[data.offset]); // create_table_query
-        output.SetValue(9, count, data.comments[data.offset]);     // comment
+        output.SetValue(0, count, data.databases[data.offset]);       // database
+        output.SetValue(1, count, data.names[data.offset]);           // name
+        output.SetValue(2, count, data.uuids[data.offset]);           // uuid
+        output.SetValue(3, count, data.engines[data.offset]);         // engine
+        output.SetValue(4, count, data.is_temporary[data.offset]);    // is_temporary
+        output.SetValue(5, count, data.data_paths[data.offset]);      // data_path
+        output.SetValue(6, count, data.metadata_paths[data.offset]);  // metadata_path
+        output.SetValue(7, count, data.metadata_modification_times[data.offset]); // metadata_modification_time
+        output.SetValue(8, count, data.metadata_versions[data.offset]); // metadata_version
+        output.SetValue(9, count, data.create_table_queries[data.offset]); // create_table_query
         
         count++;
         data.offset++;
@@ -141,23 +149,40 @@ static void SystemColumnsFunction(ClientContext &context, TableFunctionInput &da
 
 static unique_ptr<FunctionData> SystemDatabasesBind(ClientContext &context, TableFunctionBindInput &input,
                                                   vector<LogicalType> &return_types, vector<string> &names) {
+    // Define columns
     names.emplace_back("name");
     names.emplace_back("engine");
-    names.emplace_back("type");
+    names.emplace_back("data_path");
+    names.emplace_back("metadata_path");
+    names.emplace_back("uuid");
+    names.emplace_back("engine_full");
+    names.emplace_back("comment");
 
     return_types.emplace_back(LogicalType::VARCHAR);
+    return_types.emplace_back(LogicalType::VARCHAR);
+    return_types.emplace_back(LogicalType::VARCHAR);
+    return_types.emplace_back(LogicalType::VARCHAR);
+    return_types.emplace_back(LogicalType::UUID);
     return_types.emplace_back(LogicalType::VARCHAR);
     return_types.emplace_back(LogicalType::VARCHAR);
 
     auto result = make_uniq<SystemDatabasesData>();
 
-    // Get databases from catalog
+    // Get databases using duckdb_databases()
     Connection con(Catalog::GetSystemCatalog(context).GetDatabase());
-    auto db_result = con.Query("SELECT DISTINCT database FROM (SHOW ALL TABLES)");
-    
-    if (!db_result->HasError()) {
-        for (auto &row : *db_result) {
-            result->databases.push_back(row.GetValue<string>(0));
+    auto database_result = con.Query("SELECT database_name, 'duckdb' as engine, path as data_path, '' as metadata_path, "
+                                     "database_name as uuid, 'DuckDB' as engine_full, comment "
+                                     "FROM duckdb_databases()");
+
+    if (!database_result->HasError()) {
+        for (auto &row : *database_result) {
+            result->names.push_back(row.GetValue<std::string>(0));          // name
+            result->engines.push_back(row.GetValue<std::string>(1));        // engine
+            result->data_paths.push_back(row.GetValue<std::string>(2));     // data_path
+            result->metadata_paths.push_back(row.GetValue<std::string>(3)); // metadata_path
+            result->uuids.push_back(Value::UUID(row.GetValue<std::string>(4))); // uuid
+            result->engine_full.push_back(row.GetValue<std::string>(5));    // engine_full
+            result->comments.push_back(row.GetValue<std::string>(6));       // comment
         }
     }
 
@@ -166,47 +191,51 @@ static unique_ptr<FunctionData> SystemDatabasesBind(ClientContext &context, Tabl
 
 static unique_ptr<FunctionData> SystemTablesBind(ClientContext &context, TableFunctionBindInput &input,
                                                vector<LogicalType> &return_types, vector<string> &names) {
-    // Core columns
+    // Define columns
     names.emplace_back("database");
-    names.emplace_back("schema");
     names.emplace_back("name");
     names.emplace_back("uuid");
     names.emplace_back("engine");
     names.emplace_back("is_temporary");
-    names.emplace_back("column_names");
-    names.emplace_back("column_types");
+    names.emplace_back("data_path");
+    names.emplace_back("metadata_path");
+    names.emplace_back("metadata_modification_time");
+    names.emplace_back("metadata_version");
     names.emplace_back("create_table_query");
-    names.emplace_back("comment");
 
-    return_types.emplace_back(LogicalType::VARCHAR);
     return_types.emplace_back(LogicalType::VARCHAR);
     return_types.emplace_back(LogicalType::VARCHAR);
     return_types.emplace_back(LogicalType::UUID);
     return_types.emplace_back(LogicalType::VARCHAR);
     return_types.emplace_back(LogicalType::BOOLEAN);
-    return_types.emplace_back(LogicalType::LIST(LogicalType::VARCHAR));
-    return_types.emplace_back(LogicalType::LIST(LogicalType::VARCHAR));
     return_types.emplace_back(LogicalType::VARCHAR);
+    return_types.emplace_back(LogicalType::VARCHAR);
+    return_types.emplace_back(LogicalType::TIMESTAMP);
+    return_types.emplace_back(LogicalType::INTEGER);
     return_types.emplace_back(LogicalType::VARCHAR);
 
     auto result = make_uniq<SystemTablesData>();
-    
-    // Get tables using SHOW ALL TABLES
+
+    // Get tables using duckdb_tables()
     Connection con(Catalog::GetSystemCatalog(context).GetDatabase());
-    auto table_result = con.Query("SHOW ALL TABLES");
-    
+    auto table_result = con.Query("SELECT database_name, table_name, table_name as uuid, "
+                                  "'BASE TABLE' as engine, false as is_temporary, '' as data_path, "
+                                  "'' as metadata_path, '1970-01-01 00:00:00' as metadata_modification_time, "
+                                  "0 as metadata_version, sql as create_table_query "
+                                  "FROM duckdb_tables()");
+
     if (!table_result->HasError()) {
         for (auto &row : *table_result) {
-            result->databases.push_back(row.GetValue<std::string>(0));     // database
-            result->schemas.push_back(row.GetValue<std::string>(1));       // schema
-            result->names.push_back(row.GetValue<std::string>(2));         // name
+            result->databases.push_back(row.GetValue<std::string>(0));      // database
+            result->names.push_back(row.GetValue<std::string>(1));          // name
             result->uuids.push_back(Value::UUID(row.GetValue<std::string>(2))); // uuid (placeholder using table name hash)
-            result->engines.push_back(Value(row.GetValue<bool>(5) ? "TEMPORARY" : "BASE TABLE")); // engine
-            result->is_temporary.push_back(row.GetValue<bool>(5));         // is_temporary
-            result->column_names.push_back(row.GetValue<Value>(3));        // column_names
-            result->column_types.push_back(row.GetValue<Value>(4));        // column_types
-            result->create_table_query.push_back(Value(""));               // create_table_query (placeholder)
-            result->comments.push_back(Value(""));                         // comment (placeholder)
+            result->engines.push_back(row.GetValue<std::string>(3));        // engine
+            result->is_temporary.push_back(row.GetValue<bool>(4));          // is_temporary
+            result->data_paths.push_back(row.GetValue<std::string>(5));     // data_path
+            result->metadata_paths.push_back(row.GetValue<std::string>(6)); // metadata_path
+            result->metadata_modification_times.push_back(Value::TIMESTAMP(row.GetValue<timestamp_t>(7))); // metadata_modification_time
+            result->metadata_versions.push_back(row.GetValue<int32_t>(8));  // metadata_version
+            result->create_table_queries.push_back(row.GetValue<std::string>(9)); // create_table_query
         }
     }
 
@@ -344,6 +373,7 @@ DUCKDB_EXTENSION_API void chsql_system_init(duckdb::DatabaseInstance &db) {
 DUCKDB_EXTENSION_API const char *chsql_system_version() {
     return duckdb::DuckDB::LibraryVersion();
 }
+
 }
 
 #ifndef DUCKDB_EXTENSION_MAIN
