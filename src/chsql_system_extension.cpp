@@ -19,10 +19,15 @@
 #include <sys/sysinfo.h>
 #include <iterator>
 #elif defined(_WIN32)
-// windows includes
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <sys/sysctl.h>
+#include <sys/time.h>
+#include <time.h>
 #elif defined(__EMSCRIPTEN__)
-// wasm includes
+// #include <emscripten.h>
 #endif
+
 
 namespace duckdb {
 
