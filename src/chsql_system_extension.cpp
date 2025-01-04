@@ -515,33 +515,57 @@ static unique_ptr<FunctionData> SystemDisksBind(ClientContext &context, TableFun
     auto &db_instance = DatabaseInstance::GetDatabase(context);
     DuckDB db(db_instance);
     Connection con(db);
-    auto result_query = con.Query("PRAGMA database_size;");
+    
+    // Query the duckdb_databases to get the database paths
+    auto db_paths_query = con.Query("SELECT * FROM duckdb_databases();");
 
-    if (!result_query->HasError()) {
-        auto collection = result_query->Fetch();
-        for (idx_t row_idx = 0; row_idx < collection->size(); row_idx++) {
-            result->names.push_back(collection->GetValue(0, row_idx).ToString()); // database_name
-            result->paths.push_back(Value("/path/to/database")); // Assuming a fixed path, you can modify this as needed
-            result->free_spaces.push_back(Value::BIGINT(collection->GetValue(5, row_idx).GetValue<int64_t>() * collection->GetValue(2, row_idx).GetValue<int64_t>())); // free_blocks * block_size
-            result->total_spaces.push_back(Value::BIGINT(collection->GetValue(3, row_idx).GetValue<int64_t>() * collection->GetValue(2, row_idx).GetValue<int64_t>())); // total_blocks * block_size
-            result->unreserved_spaces.push_back(Value::BIGINT(collection->GetValue(5, row_idx).GetValue<int64_t>() * collection->GetValue(2, row_idx).GetValue<int64_t>())); // free_blocks * block_size
-            result->keep_free_spaces.push_back(Value::BIGINT(0)); // No equivalent in DuckDB, setting to 0
-            result->types.push_back(Value("Local")); // Assuming Local type
-            result->object_storage_types.push_back(Value("None")); // No equivalent in DuckDB, setting to None
-            result->metadata_types.push_back(Value("None")); // No equivalent in DuckDB, setting to None
-            result->is_encrypteds.push_back(Value::BOOLEAN(false)); // Assuming no encryption
-            result->is_read_onlys.push_back(Value::BOOLEAN(false)); // Assuming not read-only
-            result->is_write_onces.push_back(Value::BOOLEAN(false)); // Assuming not write-once
-            result->is_remotes.push_back(Value::BOOLEAN(false)); // Assuming not remote
-            result->is_brokens.push_back(Value::BOOLEAN(false)); // Assuming not broken
-            result->cache_paths.push_back(Value("")); // No equivalent in DuckDB, setting to empty
+    if (db_paths_query->HasError()) {
+        throw Exception(ExceptionType::EXECUTOR, "Failed to query duckdb_databases");
+    }
+
+    auto collection_paths = db_paths_query->Fetch();
+
+    for (idx_t row_idx = 0; row_idx < collection_paths->size(); row_idx++) {
+        auto name = collection_paths->GetValue(0, row_idx).ToString(); // database_name
+        auto path = collection_paths->GetValue(2, row_idx).ToString(); // path
+
+        // Query the pragma_database_size to get the database size details
+        auto size_query = con.Query("CALL pragma_database_size();");
+
+        if (size_query->HasError()) {
+            throw Exception(ExceptionType::EXECUTOR, "Failed to query pragma_database_size");
         }
-    } else {
-        throw Exception(ExceptionType::EXECUTOR, "Failed to query database size");
+
+        auto collection_size = size_query->Fetch();
+        for (idx_t size_row_idx = 0; size_row_idx < collection_size->size(); size_row_idx++) {
+            if (collection_size->GetValue(0, size_row_idx).ToString() == name) {
+                int64_t block_size = collection_size->GetValue(2, size_row_idx).GetValue<int64_t>();
+                int64_t total_blocks = collection_size->GetValue(3, size_row_idx).GetValue<int64_t>();
+                int64_t free_blocks = collection_size->GetValue(5, size_row_idx).GetValue<int64_t>();
+
+                result->names.push_back(name);
+                result->paths.push_back(path.empty() ? Value("") : Value(path));
+                result->free_spaces.push_back(Value::BIGINT(free_blocks * block_size)); // free_blocks * block_size
+                result->total_spaces.push_back(Value::BIGINT(total_blocks * block_size)); // total_blocks * block_size
+                result->unreserved_spaces.push_back(Value::BIGINT(free_blocks * block_size)); // free_blocks * block_size
+                result->keep_free_spaces.push_back(Value::BIGINT(0)); // No equivalent in DuckDB, setting to 0
+                result->types.push_back(Value("Local")); // Assuming Local type
+                result->object_storage_types.push_back(Value("None")); // No equivalent in DuckDB, setting to None
+                result->metadata_types.push_back(Value("None")); // No equivalent in DuckDB, setting to None
+                result->is_encrypteds.push_back(Value::BOOLEAN(false)); // Assuming no encryption
+                result->is_read_onlys.push_back(Value::BOOLEAN(false)); // Assuming not read-only
+                result->is_write_onces.push_back(Value::BOOLEAN(false)); // Assuming not write-once
+                result->is_remotes.push_back(Value::BOOLEAN(false)); // Assuming not remote
+                result->is_brokens.push_back(Value::BOOLEAN(false)); // Assuming not broken
+                result->cache_paths.push_back(Value("")); // No equivalent in DuckDB, setting to empty
+                break;
+            }
+        }
     }
 
     return std::move(result);
 }
+
 // Global Register
 
 
