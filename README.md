@@ -4,15 +4,17 @@
 
 # DuckDB Clickhouse System Table emulator for [chsql](https://github.com/quackscience/duckdb-extension-clickhouse-sql)
 
-> This project emulates ClickHouse system tables within DuckDB
+> This project loosely emulates ClickHouse system tables within DuckDB for client compatibility
 
-The extension provides system functions:
+The `chsql_system` extension provides a subset of system functions:
+
 ### Table Views
 - [x] `system.databases`
 - [x] `system.tables`
 - [x] `system.columns`
 - [x] `system.functions`
 - [x] `system.uptime`
+- [x] `system.disks`
 ### Scalar
 - [x] `uptime()`
 
@@ -94,44 +96,28 @@ D SELECT * FROM system.functions;
 │ duckdb_functions                         │ false        │ false            │ NULL                                                                                                                                            │
 │ duckdb_extensions                        │ false        │ false            │ NULL                                                                                                                                            │
 │ duckdb_constraints                       │ false        │ false            │ NULL                                                                                                                                            │
-│ system_columns                           │ false        │ false            │ NULL                                                                                                                                            │
-│ summary                                  │ false        │ false            │ NULL                                                                                                                                            │
-│ repeat_row                               │ false        │ false            │ NULL                                                                                                                                            │
-│ __internal_decompress_integral_usmallint │ false        │ false            │ NULL                                                                                                                                            │
-│ md5                                      │ false        │ false            │ Returns the MD5 hash of the value as a string                                                                                                   │
-│ list_negative_inner_product              │ false        │ false            │ Compute the negative inner product between two lists                                                                                            │
-│ list_sort                                │ false        │ false            │ Sorts the elements of the list                                                                                                                  │
-│ __internal_decompress_integral_smallint  │ false        │ false            │ NULL                                                                                                                                            │
-│ list_unique                              │ false        │ false            │ Counts the unique elements of a list                                                                                                            │
-│ last_day                                 │ false        │ false            │ Returns the last day of the month                                                                                                               │
-│ isnan                                    │ false        │ false            │ Returns true if the floating point value is not a number, false otherwise                                                                       │
-│ isinf                                    │ false        │ false            │ Returns true if the floating point value is infinite, false otherwise                                                                           │
-│ list_pack                                │ false        │ false            │ Create a LIST containing the argument values                                                                                                    │
-│ list_indexof                             │ false        │ false            │ NULL                                                                                                                                            │
+│ system_columns                           │ false        │ false            │ NULL                                                                                                                                            │                         │
 │  ·                                       │   ·          │   ·              │  ·                                                                                                                                              │
 │  ·                                       │   ·          │   ·              │  ·                                                                                                                                              │
 │  ·                                       │   ·          │   ·              │  ·                                                                                                                                              │
-│ list                                     │ false        │ false            │ Returns a LIST containing all the values of a column.                                                                                           │
-│ listagg                                  │ false        │ false            │ Concatenates the column string values with an optional separator.                                                                               │
-│ bit_xor                                  │ false        │ false            │ Returns the bitwise XOR of all bits in a given expression.                                                                                      │
-│ kurtosis                                 │ false        │ false            │ Returns the excess kurtosis (Fisher’s definition) of all input values, with a bias correction according to the sample size                      │
-│ any_value                                │ false        │ false            │ NULL                                                                                                                                            │
-│ product                                  │ false        │ false            │ Calculates the product of all tuples in arg.                                                                                                    │
-│ quantile                                 │ false        │ false            │ Returns the exact quantile number between 0 and 1 . If pos is a LIST of FLOATs, then the result is a LIST of the corresponding exact quantiles. │
-│ metadata_info                            │ false        │ false            │ NULL                                                                                                                                            │
-│ user_agent                               │ false        │ false            │ NULL                                                                                                                                            │
-│ array_to_string_comma_default            │ false        │ false            │ NULL                                                                                                                                            │
-│ list_reverse                             │ false        │ false            │ NULL                                                                                                                                            │
-│ list_mode                                │ false        │ false            │ NULL                                                                                                                                            │
-│ list_approx_count_distinct               │ false        │ false            │ NULL                                                                                                                                            │
-│ list_var_samp                            │ false        │ false            │ NULL                                                                                                                                            │
-│ pg_opfamily_is_visible                   │ false        │ false            │ NULL                                                                                                                                            │
-│ pg_ts_parser_is_visible                  │ false        │ false            │ NULL                                                                                                                                            │
-│ format_pg_type                           │ false        │ false            │ NULL                                                                                                                                            │
 │ format_type                              │ false        │ false            │ NULL                                                                                                                                            │
 │ has_column_privilege                     │ false        │ false            │ NULL                                                                                                                                            │
 │ inet_client_port                         │ false        │ false            │ NULL                                                                                                                                            │
 ├──────────────────────────────────────────┴──────────────┴──────────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ 692 rows (40 shown)                                                                                                                                                                                                4 columns │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+D -- List all attached databases as disks
+D SELECT * FROM system.disks;
+┌──────────┬──────────────┬────────────┬─────────────┬──────────────────┬─────────────────┬─────────┬─────────────────────┬───────────────┬──────────────┬──────────────┬───────────────┬───────────┬───────────┬────────────┐
+│   name   │     path     │ free_space │ total_space │ unreserved_space │ keep_free_space │  type   │ object_storage_type │ metadata_type │ is_encrypted │ is_read_only │ is_write_once │ is_remote │ is_broken │ cache_path │
+│ varchar  │   varchar    │   int64    │    int64    │      int64       │      int64      │ varchar │       varchar       │    varchar    │   boolean    │   boolean    │    boolean    │  boolean  │  boolean  │  varchar   │
+├──────────┼──────────────┼────────────┼─────────────┼──────────────────┼─────────────────┼─────────┼─────────────────────┼───────────────┼──────────────┼──────────────┼───────────────┼───────────┼───────────┼────────────┤
+│ localdb  │ test.db      │          0 │      262144 │                0 │               0 │ Local   │ None                │ None          │ false        │ false        │ false         │ false     │ false     │            │
+│ memory   │ NULL         │          0 │           0 │                0 │               0 │ Local   │ None                │ None          │ false        │ false        │ false         │ false     │ false     │            │
+│ testduck │ /tmp/duck.db │     262144 │      786432 │           262144 │               0 │ Local   │ None                │ None          │ false        │ false        │ false         │ false     │ false     │            │
+└──────────┴──────────────┴────────────┴─────────────┴──────────────────┴─────────────────┴─────────┴─────────────────────┴───────────────┴──────────────┴──────────────┴───────────────┴───────────┴───────────┴────────────┘
 ```
+
+### Note
+Don't use this unless you need ClickHouse client compatibility. Rely on pure DuckDB functions to build your applications.
