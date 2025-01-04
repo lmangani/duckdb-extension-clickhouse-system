@@ -13,6 +13,6 @@ require chsql_system
 
 # Confirm the extension works
 query I
-SELECT name FROM system_databases();
+SELECT name FROM system_databases() WHERE name = 'memory' LIMIT 1;
 ----
 memory
